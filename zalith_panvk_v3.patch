@@ -1,0 +1,317 @@
+diff -ruN a/java/com/movtery/zalithlauncher/game/launch/GameLauncher.kt b/java/com/movtery/zalithlauncher/game/launch/GameLauncher.kt
+--- a/java/com/movtery/zalithlauncher/game/launch/GameLauncher.kt	2026-10-18 16:43:35.213467959 -0500
++++ b/java/com/movtery/zalithlauncher/game/launch/GameLauncher.kt	2026-10-18 17:47:38.085678125 -0500
+@@ -184,7 +184,17 @@
+     override fun initEnv(screenSize: IntSize): MutableMap<String, String> {
+         val envMap = super.initEnv(screenSize)
+ 
+-        envMap["DRIVER_PATH"] = DriverPluginManager.getDriver(version.getDriver()).path
++        val driver = DriverPluginManager.getDriver(version.getDriver())
++        envMap["DRIVER_PATH"] = driver.path
++
++        if (driver.isPanVK) {
++            //PanVK: el código nativo (egl_bridge.c) solo usa PanVK si existe PANVK_SHIM_PATH
++            envMap["PANVK_SHIM_PATH"] = File(driver.path, "libvulkan_panvk_shim.so").absolutePath
++            envMap["PANVK_ICD_PATH"] = File(driver.path, "libvulkan_panfrost.so").absolutePath
++            val mesaCache = File(PathManager.DIR_CACHE, "mesa_shader_cache").also { it.mkdirs() }
++            envMap["MESA_SHADER_CACHE_DIR"] = mesaCache.absolutePath
++            envMap["MESA_GLSL_CACHE_DIR"] = mesaCache.absolutePath
++        }
+ 
+         checkAndUsedJSPH(envMap, runtime)
+         version.getVersionInfo()?.loaderInfos?.forEach { info ->
+diff -ruN a/java/com/movtery/zalithlauncher/game/plugin/driver/Driver.kt b/java/com/movtery/zalithlauncher/game/plugin/driver/Driver.kt
+--- a/java/com/movtery/zalithlauncher/game/plugin/driver/Driver.kt	2026-10-18 16:43:35.194341131 -0500
++++ b/java/com/movtery/zalithlauncher/game/plugin/driver/Driver.kt	2026-10-18 17:47:38.084626471 -0500
+@@ -29,6 +29,8 @@
+     val summary: String? = null,
+     val path: String,
+     val isLauncher: Boolean,
++    /** PanVK: el plugin trae libvulkan_panvk_shim.so + libvulkan_panfrost.so (meta-data panvkDriver) */
++    val isPanVK: Boolean = false,
+ ): ApkPlugin(
+     packageName = id,
+     appName = appName,
+diff -ruN a/java/com/movtery/zalithlauncher/game/plugin/driver/DriverPluginManager.kt b/java/com/movtery/zalithlauncher/game/plugin/driver/DriverPluginManager.kt
+--- a/java/com/movtery/zalithlauncher/game/plugin/driver/DriverPluginManager.kt	2026-10-18 16:43:35.204210736 -0500
++++ b/java/com/movtery/zalithlauncher/game/plugin/driver/DriverPluginManager.kt	2026-10-18 17:47:38.085359277 -0500
+@@ -69,6 +69,7 @@
+             if (metaData.getBoolean("fclPlugin", false)) {
+                 val driver = metaData.getString("driver") ?: return
+                 val nativeLibraryDir = info.nativeLibraryDir
++                val isPanVK = metaData.getBoolean("panvkDriver", false)
+ 
+                 val packageManager = context.packageManager
+                 val packageName = info.packageName
+@@ -82,7 +83,8 @@
+                     name = driver,
+                     summary = context.getString(R.string.settings_renderer_from_plugins, appName),
+                     path = nativeLibraryDir,
+-                    isLauncher = false
++                    isLauncher = false,
++                    isPanVK = isPanVK
+                 )
+ 
+                 driverList.add(plugin)
+diff -ruN a/java/com/movtery/zalithlauncher/viewmodel/VulkanCheckerViewModel.kt b/java/com/movtery/zalithlauncher/viewmodel/VulkanCheckerViewModel.kt
+--- a/java/com/movtery/zalithlauncher/viewmodel/VulkanCheckerViewModel.kt	2026-10-18 16:43:35.224130041 -0500
++++ b/java/com/movtery/zalithlauncher/viewmodel/VulkanCheckerViewModel.kt	2026-10-18 17:47:38.085822841 -0500
+@@ -151,7 +151,9 @@
+         return withContext(Dispatchers.IO) {
+             if (useTurnip) {
+                 val tempDir = File(PathManager.DIR_CACHE, "vulkan_temp")
+-                VulkanChecker.checkCapabilities(null, driver.path, tempDir.absolutePath)
++                //PanVK: driverPath apunta al shim (el código nativo lo detecta por el nombre)
++                val shimPath = if (driver.isPanVK) File(driver.path, "libvulkan_panvk_shim.so").absolutePath else null
++                VulkanChecker.checkCapabilities(shimPath, driver.path, tempDir.absolutePath)
+             } else {
+                 VulkanChecker.checkCapabilities(null, null, null)
+             }
+diff -ruN a/jni/egl_bridge.c b/jni/egl_bridge.c
+--- a/jni/egl_bridge.c	2026-10-18 16:43:35.169163425 -0500
++++ b/jni/egl_bridge.c	2026-10-18 17:47:38.092044501 -0500
+@@ -22,6 +22,7 @@
+ #endif
+ 
+ #include <android/native_window.h>
++#include <android/log.h>
+ #include <android/native_window_jni.h>
+ #include <android/rect.h>
+ #include <string.h>
+@@ -107,9 +108,60 @@
+     setenv("VULKAN_PTR", envval, 1);
+ }
+ 
++#define PANVK_LOG(...) __android_log_print(ANDROID_LOG_INFO, "PanVKLoader", __VA_ARGS__)
++
++/* PanVK: devuelve el handle del SHIM (no del ICD) o NULL.
++ * Solo actúa si Kotlin exportó PANVK_SHIM_PATH (driver PanVK elegido). */
++static void* loadPanVKVulkan(void) {
++    const char* shim_path = getenv("PANVK_SHIM_PATH");
++    if (shim_path == NULL || shim_path[0] == '\0')
++        return NULL;
++
++    void* h = dlopen(shim_path, RTLD_NOW | RTLD_LOCAL);
++    if (h == NULL) {
++        PANVK_LOG("dlopen directo fallo: %s", dlerror());
++        /* Reutiliza el namespace del linker que ya usa Turnip. Si linker_ns_* no
++         * está compilado (no arm64) devuelven false/NULL y no pasa nada. */
++        const char* native_dir = getenv("DRIVER_PATH");
++        if (native_dir != NULL && linker_ns_load(native_dir)) {
++            h = linker_ns_dlopen("libvulkan_panvk_shim.so", RTLD_LOCAL | RTLD_NOW);
++            if (h == NULL) PANVK_LOG("linker_ns_dlopen del shim fallo");
++        }
++        if (h == NULL) return NULL;
++    }
++
++    typedef void* (*gipa_t)(void*, const char*);
++    gipa_t gipa = (gipa_t) dlsym(h, "vkGetInstanceProcAddr");
++    if (gipa == NULL) {
++        PANVK_LOG("el shim no exporta vkGetInstanceProcAddr");
++        dlclose(h);
++        return NULL;
++    }
++    /* El shim abre el ICD en la primera llamada: forzarla aqui para poder caer al
++     * driver del sistema si el ICD no carga. */
++    if (gipa(NULL, "vkCreateInstance") == NULL) {
++        PANVK_LOG("ICD no utilizable (vkCreateInstance sin resolver)");
++        dlclose(h);
++        return NULL;
++    }
++    PANVK_LOG("shim listo: %s", shim_path);
++    return h;
++}
++
+ void load_vulkan() {
+     const char* zinkPreferSystemDriver = getenv("POJAV_ZINK_PREFER_SYSTEM_DRIVER");
+     int deviceApiLevel = android_get_device_api_level();
++
++    /* PanVK explícito (solo si el usuario eligió el driver PanVK) */
++    if (deviceApiLevel >= 28) {
++        void* panvk = loadPanVKVulkan();
++        if (panvk != NULL) {
++            printf("PanVK: shim listo, handle: %p\n", panvk);
++            set_vulkan_ptr(panvk);
++            return;
++        }
++    }
++
+     if (zinkPreferSystemDriver == NULL && deviceApiLevel >= 28) {
+ #ifdef ADRENO_POSSIBLE
+         const char* native_dir = getenv("DRIVER_PATH");
+diff -ruN a/jni/vulkan_checker.c b/jni/vulkan_checker.c
+--- a/jni/vulkan_checker.c	2026-10-18 16:43:35.180096969 -0500
++++ b/jni/vulkan_checker.c	2026-10-18 17:47:38.091047071 -0500
+@@ -7,8 +7,11 @@
+ #include <string.h>
+ #include <stdlib.h>
+ #include <stdarg.h>
++#include <android/log.h>
+ #include <vulkan/vulkan.h>
+ 
++#include "driver_helper/nsbypass.h"
++
+ 
+ static jobject g_logCallback = NULL;
+ static jmethodID g_logMethod = NULL;
+@@ -64,7 +67,11 @@
+     }
+ }
+ 
++/* PanVK: el shim solo exporta vkGetInstanceProcAddr; el resto se resuelve con él. */
+ #define LOAD_VK_FUNC(name) PFN_##name p##name = (PFN_##name)dlsym(vulkan_handle, #name)
++#define RESOLVE_VIA_GIPA(name) do { \
++        if (!p##name) p##name = (PFN_##name)pvkGetInstanceProcAddr(instance, #name); \
++    } while (0)
+ 
+ void *loadTurnipVulkan(const char *driver_path, const char *native_dir, const char *cache_dir);
+ 
+@@ -84,7 +91,28 @@
+ 
+     void *vulkan_handle = NULL;
+     int customDriver = 0;
+-    if (nativeDir && cacheDir) {
++    int panvk = 0;
++    if (driverPath && strstr(driverPath, "libvulkan_panvk_shim.so") != NULL) {
++        vulkan_handle = dlopen(driverPath, RTLD_NOW | RTLD_LOCAL);
++        if (!vulkan_handle) {
++            __android_log_print(ANDROID_LOG_INFO, "PanVKLoader", "checker: dlopen directo fallo: %s", dlerror());
++            /* vulkan_check se compila sin -DADRENO_POSSIBLE, pero linker_ns_* vive en
++             * driver_helper (que sí lo lleva), así que se puede llamar desde aquí. */
++            if (nativeDir && linker_ns_load(nativeDir))
++                vulkan_handle = linker_ns_dlopen("libvulkan_panvk_shim.so", RTLD_LOCAL | RTLD_NOW);
++        }
++        panvk = vulkan_handle != NULL;
++        if (panvk) {
++            /* Forzar la carga del ICD ahora; si no carga, caemos al driver del sistema. */
++            PFN_vkGetInstanceProcAddr g = (PFN_vkGetInstanceProcAddr) dlsym(vulkan_handle, "vkGetInstanceProcAddr");
++            if (!g || !g(NULL, "vkCreateInstance")) {
++                dlclose(vulkan_handle);
++                panvk = 0;
++                vulkan_handle = NULL;
++            }
++        }
++    }
++    if (!vulkan_handle && !driverPath && nativeDir && cacheDir) {
+ #ifdef ADRENO_POSSIBLE
+         vulkan_handle = loadTurnipVulkan(driverPath, nativeDir, cacheDir);
+         customDriver = vulkan_handle != NULL;
+@@ -103,8 +131,8 @@
+         return NULL;
+     }
+ 
+-    LOG_I("Vulkan library loaded: %s", customDriver ? "custom driver (Turnip)" : "system loader");
+-    if (nativeDir && cacheDir && !customDriver) {
++    LOG_I("Vulkan library loaded: %s", panvk ? "PanVK (shim)" : customDriver ? "custom driver (Turnip)" : "system loader");
++    if (nativeDir && cacheDir && !customDriver && !panvk) {
+         LOG_W("Custom driver was requested but failed to load; using the system loader instead.");
+     }
+ 
+@@ -129,10 +157,19 @@
+                 dlsym(vulkan_handle, "vkGetPhysicalDeviceProperties2KHR");
+     }
+ 
+-    if (!pvkCreateInstance || !pvkDestroyInstance || !pvkEnumeratePhysicalDevices ||
++    if (panvk) {
++        /* El resto de funciones de instancia/dispositivo se resuelven tras crear la instancia. */
++        /* El shim solo exporta vkGetInstanceProcAddr: vkCreateInstance sale de ahi. */
++        if (!pvkCreateInstance && pvkGetInstanceProcAddr)
++            pvkCreateInstance = (PFN_vkCreateInstance) pvkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance");
++        if (!pvkGetInstanceProcAddr || !pvkCreateInstance) {
++            LOG_E("PanVK shim: faltan vkGetInstanceProcAddr/vkCreateInstance.");
++            return NULL;
++        }
++    } else if (!pvkCreateInstance || !pvkDestroyInstance || !pvkEnumeratePhysicalDevices ||
+         !pvkEnumerateDeviceExtensionProperties || !pvkGetPhysicalDeviceProperties) {
+         LOG_E("Essential Vulkan functions missing, aborting.");
+-        dlclose(vulkan_handle);
++        if (!panvk) dlclose(vulkan_handle);
+         return NULL;
+     }
+ 
+@@ -179,7 +216,21 @@
+         vkRes = pvkCreateInstance(&createInfo, NULL, &instance);
+         if (vkRes != VK_SUCCESS) {
+             LOG_E("vkCreateInstance failed, result=%d", vkRes);
+-            dlclose(vulkan_handle);
++            if (!panvk) dlclose(vulkan_handle);
++            return NULL;
++        }
++    }
++
++    if (panvk) {
++        RESOLVE_VIA_GIPA(vkDestroyInstance);
++        RESOLVE_VIA_GIPA(vkEnumeratePhysicalDevices);
++        RESOLVE_VIA_GIPA(vkGetPhysicalDeviceFeatures);
++        RESOLVE_VIA_GIPA(vkEnumerateDeviceExtensionProperties);
++        RESOLVE_VIA_GIPA(vkGetPhysicalDeviceProperties);
++        if (!pvkDestroyInstance || !pvkEnumeratePhysicalDevices ||
++            !pvkEnumerateDeviceExtensionProperties || !pvkGetPhysicalDeviceProperties) {
++            LOG_E("PanVK shim: funciones esenciales sin resolver tras vkCreateInstance.");
++            if (pvkDestroyInstance) pvkDestroyInstance(instance, NULL);
+             return NULL;
+         }
+     }
+@@ -210,7 +261,7 @@
+     if (vkRes != VK_SUCCESS || deviceCount == 0) {
+         LOG_E("No Vulkan physical device found (result=%d, count=%u)", vkRes, deviceCount);
+         pvkDestroyInstance(instance, NULL);
+-        dlclose(vulkan_handle);
++        if (!panvk) dlclose(vulkan_handle);
+         return NULL;
+     }
+ 
+@@ -218,7 +269,7 @@
+     if (!devices) {
+         LOG_E("malloc failed for device array");
+         pvkDestroyInstance(instance, NULL);
+-        dlclose(vulkan_handle);
++        if (!panvk) dlclose(vulkan_handle);
+         return NULL;
+     }
+ 
+@@ -227,7 +278,7 @@
+         LOG_E("vkEnumeratePhysicalDevices (second pass) failed, result=%d", vkRes);
+         free(devices);
+         pvkDestroyInstance(instance, NULL);
+-        dlclose(vulkan_handle);
++        if (!panvk) dlclose(vulkan_handle);
+         return NULL;
+     }
+ 
+@@ -286,7 +337,7 @@
+     if (vkRes != VK_SUCCESS) {
+         LOG_E("vkEnumerateDeviceExtensionProperties (count) failed, result=%d", vkRes);
+         pvkDestroyInstance(instance, NULL);
+-        dlclose(vulkan_handle);
++        if (!panvk) dlclose(vulkan_handle);
+         return NULL;
+     }
+ 
+@@ -294,7 +345,7 @@
+     if (!exts) {
+         LOG_E("malloc failed for extension array");
+         pvkDestroyInstance(instance, NULL);
+-        dlclose(vulkan_handle);
++        if (!panvk) dlclose(vulkan_handle);
+         return NULL;
+     }
+ 
+@@ -303,7 +354,7 @@
+         LOG_E("vkEnumerateDeviceExtensionProperties (data) failed, result=%d", vkRes);
+         free(exts);
+         pvkDestroyInstance(instance, NULL);
+-        dlclose(vulkan_handle);
++        if (!panvk) dlclose(vulkan_handle);
+         return NULL;
+     }
+ 
+@@ -435,7 +486,7 @@
+     (*env)->DeleteLocalRef(env, capClass);
+ 
+     pvkDestroyInstance(instance, NULL);
+-    dlclose(vulkan_handle);
++    if (!panvk) dlclose(vulkan_handle);
+ 
+     LOG_I("Check finished. Vulkan %d.%d.%d", major, minor, patch);
+     return result;

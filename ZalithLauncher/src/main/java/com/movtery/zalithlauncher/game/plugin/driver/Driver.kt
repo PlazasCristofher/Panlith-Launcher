@@ -29,6 +29,8 @@ class Driver(
     val summary: String? = null,
     val path: String,
     val isLauncher: Boolean,
+    /** PanVK: el plugin trae libvulkan_panvk_shim.so + libvulkan_panfrost.so (meta-data panvkDriver) */
+    val isPanVK: Boolean = false,
 ): ApkPlugin(
     packageName = id,
     appName = appName,

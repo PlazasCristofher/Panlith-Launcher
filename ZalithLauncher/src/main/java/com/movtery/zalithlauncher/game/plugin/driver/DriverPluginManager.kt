@@ -69,6 +69,7 @@ object DriverPluginManager: ApkPluginManager() {
             if (metaData.getBoolean("fclPlugin", false)) {
                 val driver = metaData.getString("driver") ?: return
                 val nativeLibraryDir = info.nativeLibraryDir
+                val isPanVK = metaData.getBoolean("panvkDriver", false)
 
                 val packageManager = context.packageManager
                 val packageName = info.packageName
@@ -82,7 +83,8 @@ object DriverPluginManager: ApkPluginManager() {
                     name = driver,
                     summary = context.getString(R.string.settings_renderer_from_plugins, appName),
                     path = nativeLibraryDir,
-                    isLauncher = false
+                    isLauncher = false,
+                    isPanVK = isPanVK
                 )
 
                 driverList.add(plugin)

@@ -22,6 +22,7 @@
 #endif
 
 #include <android/native_window.h>
+#include <android/log.h>
 #include <android/native_window_jni.h>
 #include <android/rect.h>
 #include <string.h>
@@ -107,9 +108,60 @@ static void set_vulkan_ptr(void* ptr) {
     setenv("VULKAN_PTR", envval, 1);
 }
 
+#define PANVK_LOG(...) __android_log_print(ANDROID_LOG_INFO, "PanVKLoader", __VA_ARGS__)
+
+/* PanVK: devuelve el handle del SHIM (no del ICD) o NULL.
+ * Solo actúa si Kotlin exportó PANVK_SHIM_PATH (driver PanVK elegido). */
+static void* loadPanVKVulkan(void) {
+    const char* shim_path = getenv("PANVK_SHIM_PATH");
+    if (shim_path == NULL || shim_path[0] == '\0')
+        return NULL;
+
+    void* h = dlopen(shim_path, RTLD_NOW | RTLD_LOCAL);
+    if (h == NULL) {
+        PANVK_LOG("dlopen directo fallo: %s", dlerror());
+        /* Reutiliza el namespace del linker que ya usa Turnip. Si linker_ns_* no
+         * está compilado (no arm64) devuelven false/NULL y no pasa nada. */
+        const char* native_dir = getenv("DRIVER_PATH");
+        if (native_dir != NULL && linker_ns_load(native_dir)) {
+            h = linker_ns_dlopen("libvulkan_panvk_shim.so", RTLD_LOCAL | RTLD_NOW);
+            if (h == NULL) PANVK_LOG("linker_ns_dlopen del shim fallo");
+        }
+        if (h == NULL) return NULL;
+    }
+
+    typedef void* (*gipa_t)(void*, const char*);
+    gipa_t gipa = (gipa_t) dlsym(h, "vkGetInstanceProcAddr");
+    if (gipa == NULL) {
+        PANVK_LOG("el shim no exporta vkGetInstanceProcAddr");
+        dlclose(h);
+        return NULL;
+    }
+    /* El shim abre el ICD en la primera llamada: forzarla aqui para poder caer al
+     * driver del sistema si el ICD no carga. */
+    if (gipa(NULL, "vkCreateInstance") == NULL) {
+        PANVK_LOG("ICD no utilizable (vkCreateInstance sin resolver)");
+        dlclose(h);
+        return NULL;
+    }
+    PANVK_LOG("shim listo: %s", shim_path);
+    return h;
+}
+
 void load_vulkan() {
     const char* zinkPreferSystemDriver = getenv("POJAV_ZINK_PREFER_SYSTEM_DRIVER");
     int deviceApiLevel = android_get_device_api_level();
+
+    /* PanVK explícito (solo si el usuario eligió el driver PanVK) */
+    if (deviceApiLevel >= 28) {
+        void* panvk = loadPanVKVulkan();
+        if (panvk != NULL) {
+            printf("PanVK: shim listo, handle: %p\n", panvk);
+            set_vulkan_ptr(panvk);
+            return;
+        }
+    }
+
     if (zinkPreferSystemDriver == NULL && deviceApiLevel >= 28) {
 #ifdef ADRENO_POSSIBLE
         const char* native_dir = getenv("DRIVER_PATH");

@@ -184,7 +184,17 @@ class GameLauncher(
     override fun initEnv(screenSize: IntSize): MutableMap<String, String> {
         val envMap = super.initEnv(screenSize)
 
-        envMap["DRIVER_PATH"] = DriverPluginManager.getDriver(version.getDriver()).path
+        val driver = DriverPluginManager.getDriver(version.getDriver())
+        envMap["DRIVER_PATH"] = driver.path
+
+        if (driver.isPanVK) {
+            //PanVK: el código nativo (egl_bridge.c) solo usa PanVK si existe PANVK_SHIM_PATH
+            envMap["PANVK_SHIM_PATH"] = File(driver.path, "libvulkan_panvk_shim.so").absolutePath
+            envMap["PANVK_ICD_PATH"] = File(driver.path, "libvulkan_panfrost.so").absolutePath
+            val mesaCache = File(PathManager.DIR_CACHE, "mesa_shader_cache").also { it.mkdirs() }
+            envMap["MESA_SHADER_CACHE_DIR"] = mesaCache.absolutePath
+            envMap["MESA_GLSL_CACHE_DIR"] = mesaCache.absolutePath
+        }
 
         checkAndUsedJSPH(envMap, runtime)
         version.getVersionInfo()?.loaderInfos?.forEach { info ->

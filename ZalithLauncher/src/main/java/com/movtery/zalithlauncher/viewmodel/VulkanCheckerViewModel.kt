@@ -151,7 +151,9 @@ class VulkanCheckerViewModel: ViewModel() {
         return withContext(Dispatchers.IO) {
             if (useTurnip) {
                 val tempDir = File(PathManager.DIR_CACHE, "vulkan_temp")
-                VulkanChecker.checkCapabilities(null, driver.path, tempDir.absolutePath)
+                //PanVK: driverPath apunta al shim (el código nativo lo detecta por el nombre)
+                val shimPath = if (driver.isPanVK) File(driver.path, "libvulkan_panvk_shim.so").absolutePath else null
+                VulkanChecker.checkCapabilities(shimPath, driver.path, tempDir.absolutePath)
             } else {
                 VulkanChecker.checkCapabilities(null, null, null)
             }

@@ -7,7 +7,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <android/log.h>
 #include <vulkan/vulkan.h>
+
+#include "driver_helper/nsbypass.h"
 
 
 static jobject g_logCallback = NULL;
@@ -64,7 +67,11 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeSetLogCallback(
     }
 }
 
+/* PanVK: el shim solo exporta vkGetInstanceProcAddr; el resto se resuelve con él. */
 #define LOAD_VK_FUNC(name) PFN_##name p##name = (PFN_##name)dlsym(vulkan_handle, #name)
+#define RESOLVE_VIA_GIPA(name) do { \
+        if (!p##name) p##name = (PFN_##name)pvkGetInstanceProcAddr(instance, #name); \
+    } while (0)
 
 void *loadTurnipVulkan(const char *driver_path, const char *native_dir, const char *cache_dir);
 
@@ -84,7 +91,28 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
 
     void *vulkan_handle = NULL;
     int customDriver = 0;
-    if (nativeDir && cacheDir) {
+    int panvk = 0;
+    if (driverPath && strstr(driverPath, "libvulkan_panvk_shim.so") != NULL) {
+        vulkan_handle = dlopen(driverPath, RTLD_NOW | RTLD_LOCAL);
+        if (!vulkan_handle) {
+            __android_log_print(ANDROID_LOG_INFO, "PanVKLoader", "checker: dlopen directo fallo: %s", dlerror());
+            /* vulkan_check se compila sin -DADRENO_POSSIBLE, pero linker_ns_* vive en
+             * driver_helper (que sí lo lleva), así que se puede llamar desde aquí. */
+            if (nativeDir && linker_ns_load(nativeDir))
+                vulkan_handle = linker_ns_dlopen("libvulkan_panvk_shim.so", RTLD_LOCAL | RTLD_NOW);
+        }
+        panvk = vulkan_handle != NULL;
+        if (panvk) {
+            /* Forzar la carga del ICD ahora; si no carga, caemos al driver del sistema. */
+            PFN_vkGetInstanceProcAddr g = (PFN_vkGetInstanceProcAddr) dlsym(vulkan_handle, "vkGetInstanceProcAddr");
+            if (!g || !g(NULL, "vkCreateInstance")) {
+                dlclose(vulkan_handle);
+                panvk = 0;
+                vulkan_handle = NULL;
+            }
+        }
+    }
+    if (!vulkan_handle && !driverPath && nativeDir && cacheDir) {
 #ifdef ADRENO_POSSIBLE
         vulkan_handle = loadTurnipVulkan(driverPath, nativeDir, cacheDir);
         customDriver = vulkan_handle != NULL;
@@ -103,8 +131,8 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
         return NULL;
     }
 
-    LOG_I("Vulkan library loaded: %s", customDriver ? "custom driver (Turnip)" : "system loader");
-    if (nativeDir && cacheDir && !customDriver) {
+    LOG_I("Vulkan library loaded: %s", panvk ? "PanVK (shim)" : customDriver ? "custom driver (Turnip)" : "system loader");
+    if (nativeDir && cacheDir && !customDriver && !panvk) {
         LOG_W("Custom driver was requested but failed to load; using the system loader instead.");
     }
 
@@ -129,10 +157,19 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
                 dlsym(vulkan_handle, "vkGetPhysicalDeviceProperties2KHR");
     }
 
-    if (!pvkCreateInstance || !pvkDestroyInstance || !pvkEnumeratePhysicalDevices ||
+    if (panvk) {
+        /* El resto de funciones de instancia/dispositivo se resuelven tras crear la instancia. */
+        /* El shim solo exporta vkGetInstanceProcAddr: vkCreateInstance sale de ahi. */
+        if (!pvkCreateInstance && pvkGetInstanceProcAddr)
+            pvkCreateInstance = (PFN_vkCreateInstance) pvkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance");
+        if (!pvkGetInstanceProcAddr || !pvkCreateInstance) {
+            LOG_E("PanVK shim: faltan vkGetInstanceProcAddr/vkCreateInstance.");
+            return NULL;
+        }
+    } else if (!pvkCreateInstance || !pvkDestroyInstance || !pvkEnumeratePhysicalDevices ||
         !pvkEnumerateDeviceExtensionProperties || !pvkGetPhysicalDeviceProperties) {
         LOG_E("Essential Vulkan functions missing, aborting.");
-        dlclose(vulkan_handle);
+        if (!panvk) dlclose(vulkan_handle);
         return NULL;
     }
 
@@ -179,7 +216,21 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
         vkRes = pvkCreateInstance(&createInfo, NULL, &instance);
         if (vkRes != VK_SUCCESS) {
             LOG_E("vkCreateInstance failed, result=%d", vkRes);
-            dlclose(vulkan_handle);
+            if (!panvk) dlclose(vulkan_handle);
+            return NULL;
+        }
+    }
+
+    if (panvk) {
+        RESOLVE_VIA_GIPA(vkDestroyInstance);
+        RESOLVE_VIA_GIPA(vkEnumeratePhysicalDevices);
+        RESOLVE_VIA_GIPA(vkGetPhysicalDeviceFeatures);
+        RESOLVE_VIA_GIPA(vkEnumerateDeviceExtensionProperties);
+        RESOLVE_VIA_GIPA(vkGetPhysicalDeviceProperties);
+        if (!pvkDestroyInstance || !pvkEnumeratePhysicalDevices ||
+            !pvkEnumerateDeviceExtensionProperties || !pvkGetPhysicalDeviceProperties) {
+            LOG_E("PanVK shim: funciones esenciales sin resolver tras vkCreateInstance.");
+            if (pvkDestroyInstance) pvkDestroyInstance(instance, NULL);
             return NULL;
         }
     }
@@ -210,7 +261,7 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
     if (vkRes != VK_SUCCESS || deviceCount == 0) {
         LOG_E("No Vulkan physical device found (result=%d, count=%u)", vkRes, deviceCount);
         pvkDestroyInstance(instance, NULL);
-        dlclose(vulkan_handle);
+        if (!panvk) dlclose(vulkan_handle);
         return NULL;
     }
 
@@ -218,7 +269,7 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
     if (!devices) {
         LOG_E("malloc failed for device array");
         pvkDestroyInstance(instance, NULL);
-        dlclose(vulkan_handle);
+        if (!panvk) dlclose(vulkan_handle);
         return NULL;
     }
 
@@ -227,7 +278,7 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
         LOG_E("vkEnumeratePhysicalDevices (second pass) failed, result=%d", vkRes);
         free(devices);
         pvkDestroyInstance(instance, NULL);
-        dlclose(vulkan_handle);
+        if (!panvk) dlclose(vulkan_handle);
         return NULL;
     }
 
@@ -286,7 +337,7 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
     if (vkRes != VK_SUCCESS) {
         LOG_E("vkEnumerateDeviceExtensionProperties (count) failed, result=%d", vkRes);
         pvkDestroyInstance(instance, NULL);
-        dlclose(vulkan_handle);
+        if (!panvk) dlclose(vulkan_handle);
         return NULL;
     }
 
@@ -294,7 +345,7 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
     if (!exts) {
         LOG_E("malloc failed for extension array");
         pvkDestroyInstance(instance, NULL);
-        dlclose(vulkan_handle);
+        if (!panvk) dlclose(vulkan_handle);
         return NULL;
     }
 
@@ -303,7 +354,7 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
         LOG_E("vkEnumerateDeviceExtensionProperties (data) failed, result=%d", vkRes);
         free(exts);
         pvkDestroyInstance(instance, NULL);
-        dlclose(vulkan_handle);
+        if (!panvk) dlclose(vulkan_handle);
         return NULL;
     }
 
@@ -435,7 +486,7 @@ Java_com_movtery_zalithlauncher_utils_device_VulkanChecker_nativeCheckVulkan(
     (*env)->DeleteLocalRef(env, capClass);
 
     pvkDestroyInstance(instance, NULL);
-    dlclose(vulkan_handle);
+    if (!panvk) dlclose(vulkan_handle);
 
     LOG_I("Check finished. Vulkan %d.%d.%d", major, minor, patch);
     return result;
