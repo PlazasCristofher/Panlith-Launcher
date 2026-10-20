@@ -1,6 +1,8 @@
 name: Panlith release arm64
 
 on:
+  push:
+    branches: [panlith]
   workflow_dispatch:
 
 jobs:
