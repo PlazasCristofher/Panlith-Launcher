@@ -144,6 +144,7 @@
     <!-- Splash Screen -->
     <string name="splash_screen_unpack_desc">The launcher needs to install these files to ensure Minecraft runs properly. They are included in the app and must be extracted first. Click the button below to start extraction and update.</string>
     <string name="splash_screen_installing">The launcher is extracting these files. Once done, it will automatically enter the main screen. Please wait patiently.</string>
+    <string name="unofficial_modified_version">Unofficial Modified Version</string>
     <string name="splash_screen_agree">Install</string>
     <!--  Notification  -->
     <string name="notification_title">Check Notification Permission</string>

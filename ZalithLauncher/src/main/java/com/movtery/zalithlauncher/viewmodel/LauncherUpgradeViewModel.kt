@@ -81,6 +81,9 @@ sealed interface LauncherUpgradeOperation {
  * 最新版本的信息获取源
  */
 private const val LATEST_VERSION = "latest_version_md.json"
+/** Panlith: el actualizador consulta el Zalith oficial, asi que se desactiva. */
+private const val UPDATES_DISABLED = true
+
 private const val LATEST_API_URL = "$URL_PROJECT_INFO/$LATEST_VERSION"
 private const val LATEST_API_CHINESE_URL = "https://repo.miawa.cn/zalith-info/v2/$LATEST_VERSION"
 
@@ -123,6 +126,7 @@ class LauncherUpgradeViewModel: ViewModel() {
     fun checkOnAppStart(
         onIsLatest: suspend () -> Unit = {}
     ) {
+        if (UPDATES_DISABLED) return
         viewModelScope.launch {
             if (
                 isWithinRateLimit(
@@ -159,6 +163,10 @@ class LauncherUpgradeViewModel: ViewModel() {
         onInProgress: suspend () -> Unit = {},
         onIsLatest: suspend () -> Unit = {}
     ): Boolean {
+        if (UPDATES_DISABLED) {
+            onIsLatest()
+            return true
+        }
         return checkMutex.withLock {
             if (
                 isWithinRateLimit(

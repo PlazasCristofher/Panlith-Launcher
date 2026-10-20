@@ -50,10 +50,19 @@ android {
 
     signingConfigs {
         create("releaseBuild") {
-            storeFile = file("zalith_launcher.jks")
-            storePassword = getKeyFromLocal("STORE_PASSWORD", ".store_password.txt")
-            keyAlias = "movtery_zalith"
-            keyPassword = getKeyFromLocal("KEY_PASSWORD", ".key_password.txt")
+            // Panlith: sin claves oficiales (STORE_PASSWORD / .store_password.txt) se firma con el keystore de debug.
+            val hasOfficialKeys = System.getenv("STORE_PASSWORD") != null || File(rootDir, ".store_password.txt").isFile
+            if (hasOfficialKeys) {
+                storeFile = file("zalith_launcher.jks")
+                storePassword = getKeyFromLocal("STORE_PASSWORD", ".store_password.txt")
+                keyAlias = "movtery_zalith"
+                keyPassword = getKeyFromLocal("KEY_PASSWORD", ".key_password.txt")
+            } else {
+                storeFile = file("zalith_launcher_debug.jks")
+                storePassword = defaultStorePassword
+                keyAlias = "movtery_zalith_debug"
+                keyPassword = defaultKeyPassword
+            }
         }
         create("debugBuild") {
             storeFile = file("zalith_launcher_debug.jks")
@@ -64,8 +73,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = zalithPackageName
-        applicationIdSuffix = ".v2"
+        // Panlith: id propio (el namespace/codigo sigue siendo com.movtery.zalithlauncher)
+        applicationId = "com.d4urw.panlithlauncher"
         minSdk = 26
         targetSdk = 34
         versionCode = launcherVersionCode
