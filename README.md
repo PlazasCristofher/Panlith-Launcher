@@ -1,4 +1,3 @@
-```markdown
 # Panlith Launcher
 
 Unofficial, **experimental** fork of [Zalith Launcher 2](https://github.com/ZalithLauncher/ZalithLauncher2) for Android.
