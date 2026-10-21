@@ -179,9 +179,8 @@ Errors and experimental behavior in this fork are the responsibility of the Panl
 
 Experimental software. It may crash, underperform, or fail on untested devices.  
 Use at your own risk. For stable everyday play without PanVK, official Zalith + OpenGL paths are often a better fit until PanVK matures on your GPU.
-```
 
----
+
 
 **Before you publish**
 
