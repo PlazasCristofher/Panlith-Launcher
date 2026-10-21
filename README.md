@@ -1,107 +1,194 @@
-# Zalith Launcher 2
-![Downloads](https://img.shields.io/github/downloads/ZalithLauncher/ZalithLauncher2/total)
-[![Sponsor](https://img.shields.io/badge/sponsor-30363D?logo=GitHub-Sponsors)](https://afdian.com/a/MovTery)
+```markdown
+# Panlith Launcher
 
-[English](README_EN_US.md) | [繁體中文](README_ZH_TW.md)
+Unofficial, **experimental** fork of [Zalith Launcher 2](https://github.com/ZalithLauncher/ZalithLauncher2) for Android.
 
+[English](README.md)
 
 > [!IMPORTANT]
-> 该项目与 [ZalithLauncher](https://github.com/ZalithLauncher/ZalithLauncher) 属于两个完全不同的项目  
+> **Panlith is not Zalith.**  
+> This project is an **unofficial modified version** of Zalith Launcher 2.  
+> It is **not** affiliated with, endorsed by, or maintained by the Zalith team, Mojang, or Microsoft.  
+> For the official launcher, use [ZalithLauncher2](https://github.com/ZalithLauncher/ZalithLauncher2).
 
-**Zalith Launcher 2** 是一个全新设计、面向 **Android 设备** 的 [Minecraft: Java Edition](https://www.minecraft.net/) 启动器。项目使用 [PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher/tree/v3_openjdk/app_pojavlauncher/src/main/jni) 作为启动核心，采用 **Jetpack Compose** 与 **Material Design 3** 构建现代化 UI 体验。  
-我们目前正在搭建自己的官方网站 [zalithlauncher.cn](https://zalithlauncher.cn)  
-此外，我们已注意到有第三方使用“Zalith Launcher”名称搭建了一个看似官方的网站。请注意：**该网站并非我们创建**，其通过冒用名义并植入广告牟利。我们对此类行为**不参与、不认可、不信任**。  
-请务必提高警惕，**谨防个人隐私信息泄露**！
+**Panlith Launcher** keeps the Zalith 2 / Pojav-based launch core and modern UI, and adds support for loading a **native PanVK** Vulkan driver on **Mali** GPUs through a plugin (**Basalt Driver**)—**without root** and **without replacing** the system Vulkan driver.
 
-
-## 🌐 语言与翻译支持
-
-我们正在使用 Weblate 平台翻译 Zalith Launcher 2，欢迎您前往我们的 [Weblate 项目](https://hosted.weblate.org/projects/zalithlauncher2) 参与翻译！  
-感谢每一位语言贡献者的支持，让 Zalith Launcher 2 更加多语、更加全球化！
-
-
-
-
-## 📦 构建方式（开发者）
-
-> 以下内容适用于希望参与开发或自行构建应用的用户。
-
-### 环境要求
-
-* Android Studio Bumblebee 以上
-* Android SDK：
-    * **最低 API**：26
-    * **目标 API**：35
-* JDK 11
-
-### 构建步骤
-
-```bash
-git clone git@github.com:ZalithLauncher/ZalithLauncher2.git
-# 使用 Android Studio 打开项目并进行构建
+```text
+Minecraft 26.x  →  LWJGL Vulkan  →  shim  →  PanVK-kbase  →  Mali
+OpenGL-era MC   →  Zink/Kopper   →  VULKAN_PTR (shim)  →  PanVK-kbase  →  Mali
+Fallback        →  system Vulkan / OpenGL (e.g. MobileGlues)
 ```
 
+---
 
+## What we add (vs stock Zalith 2)
 
+| Area | Change |
+|------|--------|
+| Driver plugins | Recognize PanVK-style plugins (metadata / driver flag) |
+| Launch environment | Sets `PANVK_SHIM_PATH`, `PANVK_ICD_PATH`, Mesa cache vars, plus `DRIVER_PATH` when PanVK is selected |
+| Native Vulkan load | Prefer `dlopen` of the **Basalt shim** when those variables are set; otherwise fall back like upstream |
+| `VULKAN_PTR` | Shim library handle for LWJGL and Mesa/Zink |
+| System image | **Unchanged** — no root, no bootloader unlock, no OEM driver replacement |
 
-## 📜 License
+All other launcher features follow upstream Zalith 2.
 
-本项目代码遵循 **[GPL-3.0 license](LICENSE)** 开源协议。
+---
 
-### 附加条款 (依据 GPLv3 开源协议第七条)  
+## Requirements
 
-1. 当你分发该程序的修改版本时，你必须以合理方式修改该程序的名称或版本号，以示其与原始版本不同。(依据 [GPLv3, 7(c)](https://github.com/ZalithLauncher/ZalithLauncher2/blob/969827b/LICENSE#L372-L374))
-   - 修改版本 **不得在名称中包含原程序名称 “ZalithLauncher” 或其缩写 “ZL”，也不得使用与官方名称相近、可能导致混淆的名称**。
-   - 所有修改版本 **必须在程序启动页面或主界面中以明显方式标注其为“非官方修改版”**。
-   - 该程序的应用名称可在 [gradle.properties](./ZalithLauncher/gradle.properties) 中修改。
+- Android device suitable for Zalith (arm64 recommended)
+- **Mali** GPU where [PanVK-kbase](https://github.com/zenithblue-oss/panvk-kbase-android) can run
+- **[Basalt Driver](https://github.com/)** plugin (shim + ICD) — *add your plugin repo URL*
+- No root required
 
-2. 你不得移除该程序所显示的版权声明。(依据 [GPLv3, 7(b)](https://github.com/ZalithLauncher/ZalithLauncher2/blob/969827b/LICENSE#L368-L370))
+### Tested configuration
 
-## 引用开源项目
+| | |
+|--|--|
+| Device | Samsung Galaxy A16 5G (SM-A166M) |
+| SoC / GPU | Exynos 1330 / **Mali-G68 MC2** |
+| Android | 16 |
+| Upstream base | Zalith Launcher 2.x (PanVK-patched fork) |
 
-本软件使用以下开源库:
+Other devices are **not** guaranteed.
 
-| Library                               | Copyright                                                                                                     | License              | Official Link                                                                     |
-|---------------------------------------|---------------------------------------------------------------------------------------------------------------|----------------------|-----------------------------------------------------------------------------------|
-| androidx-appcompat                    | Copyright © The Android Open Source Project                                                                   | Apache 2.0           | [链接↗](https://developer.android.com/jetpack/androidx/releases/appcompat)         |
-| androidx-constraintlayout-compose     | Copyright © The Android Open Source Project                                                                   | Apache 2.0           | [链接↗](https://developer.android.com/develop/ui/compose/layouts/constraintlayout) |
-| androidx-webkit                       | Copyright © The Android Open Source Project                                                                   | Apache 2.0           | [链接↗](https://developer.android.com/jetpack/androidx/releases/webkit)            |
-| ANGLE                                 | Copyright 2018 The ANGLE Project Authors                                                                      | BSD 3-Clause License | [链接↗](http://angleproject.org/)                                                  |
-| Apache Commons Codec                  | -                                                                                                             | Apache 2.0           | [链接↗](https://commons.apache.org/proper/commons-codec)                           |
-| Apache Commons Compress               | -                                                                                                             | Apache 2.0           | [链接↗](https://commons.apache.org/proper/commons-compress)                        |
-| Apache Commons IO                     | -                                                                                                             | Apache 2.0           | [链接↗](https://commons.apache.org/proper/commons-io)                              |
-| ByteHook                              | Copyright © 2020-2024 ByteDance, Inc.                                                                         | MIT License          | [链接↗](https://github.com/bytedance/bhook)                                        |
-| BuildKeys                             | Copyright © 2026 MovTery                                                                                      | Aoache 2.0           | [链接↗](https://github.com/MovTery/BuildKeys)                                      |
-| Coil Compose                          | Copyright © 2025 Coil Contributors                                                                            | Apache 2.0           | [链接↗](https://github.com/coil-kt/coil)                                           |
-| Coil Gifs                             | Copyright © 2025 Coil Contributors                                                                            | Apache 2.0           | [链接↗](https://github.com/coil-kt/coil)                                           |
-| Coil SVG                              | Copyright © 2025 Coil Contributors                                                                            | Apache 2.0           | [链接↗](https://github.com/coil-kt/coil)                                           |
-| Fishnet                               | Copyright © 2025 Kyant                                                                                        | Apache 2.0           | [链接↗](https://github.com/Kyant0/Fishnet)                                         |
-| gl4es_extra_extra                     | Copyright © 2016-2018 Sebastien Chevalier; Copyright (c) 2013-2016 Ryan Hileman                               | MIT License          | [链接↗](https://github.com/PojavLauncherTeam/gl4es_extra_extra)                    |
-| Gson                                  | Copyright © 2008 Google Inc.                                                                                  | Apache 2.0           | [链接↗](https://github.com/google/gson)                                            |
-| kotlinx.coroutines                    | Copyright © 2000-2020 JetBrains s.r.o.                                                                        | Apache 2.0           | [链接↗](https://github.com/Kotlin/kotlinx.coroutines)                              |
-| ktor-client-content-negotiation       | Copyright © 2000-2023 JetBrains s.r.o.                                                                        | Apache 2.0           | [链接↗](https://ktor.io)                                                           |
-| ktor-client-core                      | Copyright © 2000-2023 JetBrains s.r.o.                                                                        | Apache 2.0           | [链接↗](https://ktor.io)                                                           |
-| ktor-client-okhttp                    | Copyright © 2000-2023 JetBrains s.r.o.                                                                        | Apache 2.0           | [链接↗](https://ktor.io)                                                           |
-| ktor-http                             | Copyright © 2000-2023 JetBrains s.r.o.                                                                        | Apache 2.0           | [链接↗](https://ktor.io)                                                           |
-| ktor-serialization-kotlinx-json       | Copyright © 2000-2023 JetBrains s.r.o.                                                                        | Apache 2.0           | [链接↗](https://ktor.io)                                                           |
-| LWJGL - Lightweight Java Game Library | Copyright © 2012-present Lightweight Java Game Library All rights reserved.                                   | BSD 3-Clause License | [链接↗](https://github.com/LWJGL/lwjgl3)                                           |
-| material-color-utilities              | Copyright 2021 Google LLC                                                                                     | Apache 2.0           | [链接↗](https://github.com/material-foundation/material-color-utilities)           |
-| Maven Artifact                        | Copyright © The Apache Software Foundation                                                                    | Apache 2.0           | [链接↗](https://github.com/apache/maven/tree/maven-3.9.9/maven-artifact)           |
-| Media3                                | Copyright © The Android Open Source Project                                                                   | Apache 2.0           | [链接↗](https://developer.android.com/jetpack/androidx/releases/media3)            |
-| Mesa                                  | Copyright © The Mesa Authors                                                                                  | MIT License          | [链接↗](https://mesa3d.org/)                                                       |
-| MMKV                                  | Copyright © 2018 THL A29 Limited, a Tencent company.                                                          | BSD 3-Clause License | [链接↗](https://github.com/Tencent/MMKV)                                           |
-| Navigation 3                          | Copyright © The Android Open Source Project                                                                   | Apache 2.0           | [链接↗](https://developer.android.com/jetpack/androidx/releases/navigation3)       |
-| NG-GL4ES                              | Copyright © 2016-2018 Sebastien Chevalier; Copyright © 2013-2016 Ryan Hileman; Copyright (c) 2025-2026 BZLZHH | MIT License          | [链接↗](https://github.com/BZLZHH/NG-GL4ES)                                        |
-| OkHttp                                | Copyright © 2019 Square, Inc.                                                                                 | Apache 2.0           | [链接↗](https://github.com/square/okhttp)                                          |
-| Okio                                  | Copyright © 2013 Square, Inc.                                                                                 | Apache 2.0           | [链接↗](https://square.github.io/okio/)                                            |
-| OpenNBT                               | Copyright © 2013-2021 Steveice10.                                                                             | MIT License          | [链接↗](https://github.com/GeyserMC/OpenNBT)                                       |
-| Process Phoenix                       | Copyright © 2015 Jake Wharton                                                                                 | Apache 2.0           | [链接↗](https://github.com/JakeWharton/ProcessPhoenix)                             |
-| proxy-client-android                  | -                                                                                                             | LGPL-3.0 License     | [链接↗](https://github.com/TouchController/TouchController)                        |
-| Reorderable                           | Copyright © 2023 Calvin Liang                                                                                 | Apache 2.0           | [链接↗](https://github.com/Calvin-LL/Reorderable)                                  |
-| sdl2-compat                           | Copyright (C) 2026 Sam Lantinga <slouken@libsdl.org>                                                          | Zlib License         | [链接↗](https://github.com/libsdl-org/sdl2-compat)                                 |
-| SDL3                                  | Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>                                                     | Zlib License         | [链接↗](https://github.com/libsdl-org/SDL)                                         |
-| skinview3d                            | Copyright © 2014-2018 Kent Rasmussen; Copyright © 2017-2022 Haowei Wen, Sean Boult and contributors           | MIT License          | [链接↗](https://github.com/bs-community/skinview3d)                                |
-| sora-editor                           | Copyright (C) 2020-2026  Rosemoe                                                                              | LGPL-2.1 License     | [链接↗](https://github.com/Rosemoe/sora-editor)                                    |
-| StringFog                             | Copyright © 2016-2023, Megatron King                                                                          | Apache 2.0           | [链接↗](https://github.com/MegatronKing/StringFog)                                 |
-| tm4e (TextMate for Eclipse)           | Copyright © Eclipse Foundation                                                                                | EPL-2.0 License      | [链接↗](https://github.com/eclipse-tm4e/tm4e)                                      |
-| XZ for Java                           | Copyright © The XZ for Java authors and contributors                                                          | 0BSD License         | [链接↗](https://tukaani.org/xz/java.html)                                          |
+---
+
+## How to use
+
+1. Install **Panlith** (this app). Use a distinct install from official Zalith if both are present (`applicationId` differs).
+2. Install **Basalt Driver**.
+3. In driver settings, select **PanVK / Basalt**.
+4. Choose a renderer:
+   - **Minecraft 26.x:** native Vulkan backend.
+   - **Older OpenGL titles (e.g. 1.8.9, 1.12):** Kopper Zink / Ironized Zink (or any path with `GALLIUM_DRIVER=zink`).
+5. If PanVK fails to load, use OpenGL (e.g. MobileGlues) or the default driver.
+
+### Environment variables (set automatically)
+
+| Variable | Role |
+|----------|------|
+| `DRIVER_PATH` | Plugin `nativeLibraryDir` |
+| `PANVK_SHIM_PATH` | Path to `libvulkan_panvk_shim.so` |
+| `PANVK_ICD_PATH` | Path to `libvulkan_panfrost.so` |
+| `VULKAN_PTR` | Shim `dlopen` handle (hex), consumed by native code / Zink |
+| `MESA_SHADER_CACHE_DIR` | Mesa shader cache when applicable |
+
+### Verified paths (reference device)
+
+| Path | Result |
+|------|--------|
+| MC **26.x** native Vulkan + PanVK | Works (`panvk` in F3 / logs) |
+| MC **1.8.9** Kopper Zink + PanVK | Menu and world |
+| Zink + shaders (e.g. 1.12) | Works |
+| OpenGL MobileGlues | Reliable fallback |
+
+**Performance note (MC 26.x, ~2340×1080):** OpenGL ≈ 60+ FPS; PanVK at full resolution ≈ 18–20 FPS; lower render scale improves PanVK FPS. PanVK on G68 remains experimental.
+
+---
+
+## Building (developers)
+
+Environment follows upstream Zalith 2 as closely as possible. Typical expectations:
+
+- Android Studio (recent stable)
+- Android SDK (see upstream; min/target APIs per Zalith tree you forked)
+- JDK as required by the Zalith version you based this on (upstream docs mention JDK 11; some CI setups use newer JDKs—match **your** branch/`build.gradle`)
+
+```bash
+git clone --recurse-submodules https://github.com/YOUR_USER/panlith-launcher.git
+# Open in Android Studio, or build via the project’s Gradle / GitHub Actions workflow
+```
+
+PanVK-related changes live mainly in:
+
+- Launch-time env setup (Kotlin)
+- Native Vulkan load path (`egl_bridge` / driver helper family)
+
+App display name and branding: adjust in `gradle.properties` (and resources) so the product is clearly **Panlith**, not Zalith.
+
+More detail on the load path: see the **Panlith + Basalt** documentation repo (or `docs/PANVK_PATH.md` if present).
+
+---
+
+## License
+
+This program is a modification of **Zalith Launcher 2** and is licensed under the **[GNU GPL-3.0](LICENSE)**.
+
+Upstream project: [ZalithLauncher/ZalithLauncher2](https://github.com/ZalithLauncher/ZalithLauncher2).
+
+### Additional terms (from upstream, GPLv3 section 7)
+
+When you distribute a modified version of this program you must:
+
+1. **Distinguish it from the original** in a reasonable way (name and/or version)  
+   ([GPLv3 §7(c)](https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/LICENSE)).
+   - Do **not** use the name **“ZalithLauncher”**, the abbreviation **“ZL”**, or a name that is confusingly similar to the official product.
+   - Show clearly on the **startup screen or main UI** that this is an **unofficial modified version**.
+   - The application display name may be changed in `gradle.properties`.
+
+2. **Do not remove** the copyright notices displayed by the program  
+   ([GPLv3 §7(b)](https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/LICENSE)).
+
+**Panlith** is an unofficial modified build. Please prefer and support [upstream Zalith Launcher 2](https://github.com/ZalithLauncher/ZalithLauncher2) for general launcher features and issues unrelated to PanVK.
+
+---
+
+## Third-party / open source
+
+This fork **inherits** Zalith Launcher 2’s dependencies (LWJGL, Mesa-related components, AndroidX, etc.).  
+For the full upstream library table, see the [Zalith Launcher 2 README](https://github.com/ZalithLauncher/ZalithLauncher2).
+
+**Additionally relevant to Panlith:**
+
+| Component | Role | Project |
+|-----------|------|---------|
+| PanVK-kbase | Mali Vulkan ICD (kbase) | [zenithblue-oss/panvk-kbase-android](https://github.com/zenithblue-oss/panvk-kbase-android) |
+| Basalt shim | ICD ↔ LWJGL/Zink entry points | Panlith + Basalt |
+| Mesa / panvk | Driver stack | [mesa3d.org](https://mesa3d.org/) |
+
+Ship only binaries you are allowed to redistribute under their respective licenses.
+
+---
+
+## Acknowledgments
+
+### Upstream (essential)
+
+- **[zenithblue-oss](https://github.com/zenithblue-oss)** — **[panvk-kbase-android](https://github.com/zenithblue-oss/panvk-kbase-android)**  
+  PanVK on Android via the Mali **kbase** interface, releases, and the ecosystem that made this experiment possible. Panlith/Basalt **depend** on their work; driver credit belongs to them.
+- **[ZalithLauncher](https://github.com/ZalithLauncher/ZalithLauncher2)** — launcher base (GPL-3.0)
+- PojavLauncher family — historical launch core
+- Mesa / Panfrost / panvk contributors
+- PanProbe; community plugins (e.g. PanVKDriverPlugin, FCL Turnip-style drivers); MobileGlues; Kopper-Zink / IronizedZink
+
+### Panlith + Basalt team
+
+- **Cristofher ([PlazasCristofher](https://github.com/PlazasCristofher))** — device bring-up, integration, testing, and project direction  
+- All teammates who worked on the Zalith patch, Basalt shim/plugin packaging, and end-to-end validation on real hardware  
+
+### Tools & assistance
+
+- ChatGPT, Claude, Grok, and Copilot — design discussion, research, and implementation support  
+
+Errors and experimental behavior in this fork are the responsibility of the Panlith + Basalt team, not of Zalith or zenithblue-oss.
+
+---
+
+## Disclaimer
+
+Experimental software. It may crash, underperform, or fail on untested devices.  
+Use at your own risk. For stable everyday play without PanVK, official Zalith + OpenGL paths are often a better fit until PanVK matures on your GPU.
+```
+
+---
+
+**Before you publish**
+
+1. Put real URLs for the Basalt repo and meta docs.  
+2. Point `LICENSE` links at the **same commit/branch** you forked if `main` moved.  
+3. In the **app UI**, add a visible **“Unofficial modified version of Zalith Launcher 2”** string (required by upstream terms).  
+4. Add other human teammates under **Panlith + Basalt team** when you have handles.
+
+This is ready to paste as `README.md` (English-first).
