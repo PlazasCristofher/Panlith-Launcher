@@ -9,7 +9,7 @@
 
 **Panlith Launcher** is a modified version of Zalith Launcher 2, a launcher for [Minecraft: Java Edition](https://www.minecraft.net/) on **Android** that uses PojavLauncher as its core, with a Jetpack Compose and Material Design 3 interface.
 
-The only purpose of this fork is to allow a native **PanVK** Vulkan driver on Mali GPUs, loaded from a plugin ([**Basalt Driver**](https://github.com/PlazasCristofher/Panlith)), **without root, without unlocking the bootloader, and without touching the system Vulkan driver**. If PanVK is not available, the launcher keeps working like Zalith, using OpenGL (MobileGlues).
+The only purpose of this fork is to allow a native **PanVK** Vulkan driver on Mali GPUs, loaded from a plugin ([**Basalt Driver**](https://github.com/PlazasCristofher/Basalt-Driver)), **without root, without unlocking the bootloader, and without touching the system Vulkan driver**. If PanVK is not available, the launcher keeps working like Zalith, using OpenGL (MobileGlues).
 
 ## What changes compared to Zalith Launcher 2
 
