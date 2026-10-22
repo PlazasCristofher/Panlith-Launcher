@@ -45,7 +45,7 @@ Everything else is Zalith Launcher 2 code.
 
 The same page says that on GPUs where PanVK support is experimental, the driver refuses to load by default unless `PAN_I_WANT_A_BROKEN_VULKAN_DRIVER=1` is set. It only mentions a Vulkan conformance submission for the Mali-G610.
 
-The [PanVK-kbase project](https://github.com/zenithblue-oss/panvk-kbase-android) by zenithblue-oss, which this plugin uses, names a **Mali-G615 MC6** as its reference device and does not publish a GPU compatibility table.
+The [PanVK-kbase project](https://github.com/zenithblue-oss/panvk-kbase-android) by zenithblue-oss, which this plugin uses, names a **Mali-G615 MC6**.
 
 **What has been tested here.** Only a **Mali-G68 MC2** (Samsung Galaxy A16 5G, Exynos 1330, Android 16), with the `PanVK-kbase RC3-lowmem` build. It works there, even though the Mesa table lists no Vulkan version for the G68, and it did not need the variable above. This is a single-device result, **not** an official support claim.
 
